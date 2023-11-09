@@ -10,42 +10,50 @@ module Network.HTTP.Client.Connection
     , openSocketConnectionSize
     , makeConnection
     , socketConnection
+    , withSocket
+    , strippedHostName
     ) where
 
 import Data.ByteString (ByteString, empty)
 import Data.Dynamic (toDyn, Typeable)
 import Data.IORef
 import Control.Monad
+import Control.Concurrent
+import Control.Concurrent.Async
 import Network.HTTP.Client.Types
 import Network.Socket (Socket, HostAddress)
 import qualified Network.Socket as NS
 import Network.Socket.ByteString (sendAll, recv)
 import qualified Control.Exception as E
 import qualified Data.ByteString as S
-import Data.Word (Word8)
+import Data.Foldable (for_)
 import Data.Function (fix)
+import Data.Maybe (listToMaybe)
+import Data.Word (Word8)
 
-connectionReadLine :: Connection -> IO ByteString
-connectionReadLine conn = do
+connectionReadLine :: Maybe MaxHeaderLength -> Connection -> IO ByteString
+connectionReadLine mhl conn = do
     bs <- connectionRead conn
     when (S.null bs) $ throwHttp IncompleteHeaders
-    connectionReadLineWith conn bs
+    connectionReadLineWith mhl conn bs
 
 -- | Keep dropping input until a blank line is found.
-connectionDropTillBlankLine :: Connection -> IO ()
-connectionDropTillBlankLine conn = fix $ \loop -> do
-    bs <- connectionReadLine conn
+connectionDropTillBlankLine :: Maybe MaxHeaderLength -> Connection -> IO ()
+connectionDropTillBlankLine mhl conn = fix $ \loop -> do
+    bs <- connectionReadLine mhl conn
     unless (S.null bs) loop
 
-connectionReadLineWith :: Connection -> ByteString -> IO ByteString
-connectionReadLineWith conn bs0 =
+connectionReadLineWith :: Maybe MaxHeaderLength -> Connection -> ByteString -> IO ByteString
+connectionReadLineWith mhl conn bs0 =
     go bs0 id 0
   where
     go bs front total =
         case S.break (== charLF) bs of
             (_, "") -> do
                 let total' = total + S.length bs
-                when (total' > 4096) $ throwHttp OverlongHeaders
+                case fmap unMaxHeaderLength mhl of
+                    Nothing -> pure ()
+                    Just n -> when (total' > n) $ throwHttp OverlongHeaders
                 bs' <- connectionRead conn
                 when (S.null bs') $ throwHttp IncompleteHeaders
                 go bs' (front . (bs:)) total'
@@ -151,14 +159,39 @@ openSocketConnectionSize :: (Socket -> IO ())
                          -> String -- ^ host
                          -> Int -- ^ port
                          -> IO Connection
-openSocketConnectionSize tweakSocket chunksize hostAddress' host' port' = do
-    let hints = NS.defaultHints {
-                          NS.addrFlags = [NS.AI_ADDRCONFIG]
-                        , NS.addrSocketType = NS.Stream
-                        }
+openSocketConnectionSize tweakSocket chunksize hostAddress' host' port' =
+    withSocket tweakSocket hostAddress' host' port' $ \ sock ->
+        socketConnection sock chunksize
+
+-- | strippedHostName takes a URI host name, as extracted
+-- by 'Network.URI.regName', and strips square brackets
+-- around IPv6 addresses.
+--
+-- The result is suitable for passing to services such as
+-- name resolution ('Network.Socket.getAddr').
+--
+-- @since
+strippedHostName :: String -> String
+strippedHostName hostName =
+    case hostName of
+        '[':'v':_ -> hostName -- IPvFuture, no obvious way to deal with this
+        '[':rest ->
+            case break (== ']') rest of
+                (ipv6, "]") -> ipv6
+                _ -> hostName -- invalid host name
+        _ -> hostName
+
+withSocket :: (Socket -> IO ())
+           -> Maybe HostAddress
+           -> String -- ^ host
+           -> Int -- ^ port
+           -> (Socket -> IO a)
+           -> IO a
+withSocket tweakSocket hostAddress' host' port' f = do
+    let hints = NS.defaultHints { NS.addrSocketType = NS.Stream }
     addrs <- case hostAddress' of
         Nothing ->
-            NS.getAddrInfo (Just hints) (Just host') (Just $ show port')
+            NS.getAddrInfo (Just hints) (Just $ strippedHostName host') (Just $ show port')
         Just ha ->
             return
                 [NS.AddrInfo
@@ -170,21 +203,43 @@ openSocketConnectionSize tweakSocket chunksize hostAddress' host' port' = do
                  , NS.addrCanonName = Nothing
                  }]
 
-    firstSuccessful addrs $ \addr ->
-        E.bracketOnError
-            (NS.socket (NS.addrFamily addr) (NS.addrSocketType addr)
-                       (NS.addrProtocol addr))
-            NS.close
-            (\sock -> do
-                NS.setSocketOption sock NS.NoDelay 1
-                tweakSocket sock
-                NS.connect sock (NS.addrAddress addr)
-                socketConnection sock chunksize)
+    E.bracketOnError (firstSuccessful addrs $ openSocket tweakSocket) NS.close f
 
+openSocket tweakSocket addr =
+    E.bracketOnError
+        (NS.socket (NS.addrFamily addr) (NS.addrSocketType addr)
+                   (NS.addrProtocol addr))
+        NS.close
+        (\sock -> do
+            NS.setSocketOption sock NS.NoDelay 1
+            tweakSocket sock
+            NS.connect sock (NS.addrAddress addr)
+            return sock)
+
+-- Pick up an IP using an approximation of the happy-eyeballs algorithm:
+-- https://datatracker.ietf.org/doc/html/rfc8305
+--
 firstSuccessful :: [NS.AddrInfo] -> (NS.AddrInfo -> IO a) -> IO a
-firstSuccessful []     _  = error "getAddrInfo returned empty list"
-firstSuccessful (a:as) cb =
-    cb a `E.catch` \(e :: E.IOException) ->
-        case as of
-            [] -> E.throwIO e
-            _  -> firstSuccessful as cb
+firstSuccessful []        _  = error "getAddrInfo returned empty list"
+firstSuccessful addresses cb = do
+    result <- newEmptyMVar
+    either E.throwIO pure =<<
+        withAsync (tryAddresses result)
+            (\_ -> takeMVar result)
+  where
+    -- https://datatracker.ietf.org/doc/html/rfc8305#section-5
+    connectionAttemptDelay = 250 * 1000
+
+    tryAddresses result = do
+        z <- forConcurrently (zip addresses [0..]) $ \(addr, n) -> do
+            when (n > 0) $ threadDelay $ n * connectionAttemptDelay
+            tryAddress addr
+
+        case listToMaybe (reverse z) of
+            Just e@(Left _) -> tryPutMVar result e
+            _               -> error $ "tryAddresses invariant violated: " ++ show addresses
+      where
+        tryAddress addr = do
+            r :: Either E.IOException a <- E.try $! cb addr
+            for_ r $ \_ -> tryPutMVar result r
+            pure r

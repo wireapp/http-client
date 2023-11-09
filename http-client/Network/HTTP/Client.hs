@@ -116,6 +116,7 @@ module Network.HTTP.Client
     , proxyFromRequest
     , noProxy
     , useProxy
+    , useProxySecureWithoutConnect
     , proxyEnvironment
     , proxyEnvironmentNamed
     , defaultProxy
@@ -137,6 +138,7 @@ module Network.HTTP.Client
     , requestFromURI_
     , defaultRequest
     , applyBasicAuth
+    , applyBearerAuth
     , urlEncodedBody
     , getUri
     , setRequestIgnoreStatus
@@ -160,10 +162,12 @@ module Network.HTTP.Client
     , decompress
     , redirectCount
     , shouldStripHeaderOnRedirect
+    , shouldStripHeaderOnRedirectIfOnDifferentHostOnly
     , checkResponse
     , responseTimeout
     , cookieJar
     , requestVersion
+    , redactHeaders
       -- ** Request body
     , RequestBody (..)
     , Popper
@@ -179,6 +183,7 @@ module Network.HTTP.Client
     , responseHeaders
     , responseBody
     , responseCookieJar
+    , getOriginalRequest
     , throwErrorStatusCodes
       -- ** Response body
     , BodyReader
@@ -200,12 +205,13 @@ module Network.HTTP.Client
     , equivCookieJar
     , Proxy (..)
     , withConnection
+    , strippedHostName
       -- * Cookies
     , module Network.HTTP.Client.Cookies
     ) where
 
 import Network.HTTP.Client.Body
-import Network.HTTP.Client.Connection (makeConnection, socketConnection)
+import Network.HTTP.Client.Connection (makeConnection, socketConnection, strippedHostName)
 import Network.HTTP.Client.Cookies
 import Network.HTTP.Client.Core
 import Network.HTTP.Client.Manager
@@ -220,7 +226,7 @@ import Data.Traversable (Traversable)
 import Network.HTTP.Types (statusCode)
 import GHC.Generics (Generic)
 import Data.Typeable (Typeable)
-import Control.Exception (bracket, handle, throwIO)
+import Control.Exception (bracket, catch, handle, throwIO)
 
 -- | A datatype holding information on redirected requests and the final response.
 --
@@ -259,6 +265,7 @@ responseOpenHistory reqOrig man0 = handle (throwIO . toHttpException reqOrig) $ 
                                             (responseBody res')
                     }
             case getRedirectedRequest
+                    req
                     req'
                     (responseHeaders res)
                     (responseCookieJar res)
@@ -267,6 +274,7 @@ responseOpenHistory reqOrig man0 = handle (throwIO . toHttpException reqOrig) $ 
                 Just req'' -> do
                     writeIORef reqRef req''
                     body <- brReadSome (responseBody res) 1024
+                        `catch` handleClosedRead
                     modifyIORef historyRef (. ((req, res { responseBody = body }):))
                     return (res, req'', True)
     (_, res) <- httpRedirect' (redirectCount reqOrig) go reqOrig
@@ -344,9 +352,9 @@ managerSetProxy po = managerSetInsecureProxy po . managerSetSecureProxy po
 -- >   -- Create the request
 -- >   let requestObject = object ["name" .= "Michael", "age" .= 30]
 -- >   let requestObject = object
--- >    [ "name" .= ("Michael" :: Text)
--- >    , "age"  .= (30 :: Int)
--- >    ]
+-- >        [ "name" .= ("Michael" :: Text)
+-- >        , "age"  .= (30 :: Int)
+-- >        ]
 -- >
 -- >   initialRequest <- parseRequest "http://httpbin.org/post"
 -- >   let request = initialRequest { method = "POST", requestBody = RequestBodyLBS $ encode requestObject }

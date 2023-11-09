@@ -1,3 +1,22 @@
+# Changelog for http-client-tls
+
+## 0.3.6.3
+
+* catching up to tls 1.8.0 [#515](https://github.com/snoyberg/http-client/pull/515)
+
+## 0.3.6.2
+
+* Migrate to `crypton`
+
+## 0.3.6.1
+
+* [#482](https://github.com/snoyberg/http-client/issues/482):
+  Raise lower bound on `http-client` to fix build.
+
+## 0.3.6
+
+* Allow making requests to raw IPv6 hosts [#477](https://github.com/snoyberg/http-client/pull/477)
+
 ## 0.3.5.3
 
 * Fix `newTlsManager` [#325](https://github.com/snoyberg/http-client/issues/325)

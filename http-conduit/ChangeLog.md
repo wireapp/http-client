@@ -1,5 +1,26 @@
 # ChangeLog for http-conduit
 
+## 2.3.8.3
+
+* aeson 2.2 support [#512](https://github.com/snoyberg/http-client/pull/512)
+
+## 2.3.8.2
+
+* Add missing `crypton-connection` dependency
+
+## 2.3.8.1
+
+* Drop `connection` dependency
+
+## 2.3.8
+
+* Adds `setRequestBearerAuth` convenience function. Note that this is only available for `http-client` versions 0.7.6 or greater. [#457](https://github.com/snoyberg/http-client/pull/457/files)
+* Adds a convenience function to set a request's response timeout [#456](https://github.com/snoyberg/http-client/pull/456)
+
+## 2.3.7.4
+
+* Introduces the `aeson` cabal file [#448](https://github.com/snoyberg/http-client/issues/448)
+
 ## 2.3.7.3
 
 * Relax test suite version bounds

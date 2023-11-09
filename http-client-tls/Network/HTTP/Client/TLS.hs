@@ -91,18 +91,22 @@ mkManagerSettingsContext' set mcontext tls sockHTTP sockHTTPS = set
     , managerRetryableException = \e ->
         case () of
             ()
+#if MIN_VERSION_tls(1,8,0)
+                | ((fromException e)::(Maybe TLS.TLSException))==Just (TLS.PostHandshake TLS.Error_EOF) -> True
+#else
                 | ((fromException e)::(Maybe TLS.TLSError))==Just TLS.Error_EOF -> True
+#endif
                 | otherwise -> managerRetryableException defaultManagerSettings e
     , managerWrapException = \req ->
         let wrapper se
               | Just (_ :: IOException)          <- fromException se = se'
               | Just (_ :: TLS.TLSException)     <- fromException se = se'
+#if !MIN_VERSION_tls(1,8,0)
               | Just (_ :: TLS.TLSError)         <- fromException se = se'
+#endif
               | Just (_ :: NC.LineTooLong)       <- fromException se = se'
-#if MIN_VERSION_connection(0,2,7)
               | Just (_ :: NC.HostNotResolved)   <- fromException se = se'
               | Just (_ :: NC.HostCannotConnect) <- fromException se = se'
-#endif
               | otherwise = se
               where
                 se' = toException $ HttpExceptionRequest req $ InternalException se
@@ -121,7 +125,7 @@ getTlsConnection mcontext tls sock = do
     context <- maybe NC.initConnectionContext return mcontext
     return $ \_ha host port -> bracketOnError
         (NC.connectTo context NC.ConnectionParams
-            { NC.connectionHostname = host
+            { NC.connectionHostname = strippedHostName host
             , NC.connectionPort = fromIntegral port
             , NC.connectionUseSecure = tls
             , NC.connectionUseSocks = sock
@@ -138,13 +142,13 @@ getTlsProxyConnection mcontext tls sock = do
     context <- maybe NC.initConnectionContext return mcontext
     return $ \connstr checkConn serverName _ha host port -> bracketOnError
         (NC.connectTo context NC.ConnectionParams
-            { NC.connectionHostname = serverName
+            { NC.connectionHostname = strippedHostName serverName
             , NC.connectionPort = fromIntegral port
             , NC.connectionUseSecure = Nothing
             , NC.connectionUseSocks =
                 case sock of
                     Just _ -> error "Cannot use SOCKS and TLS proxying together"
-                    Nothing -> Just $ NC.OtherProxy host $ fromIntegral port
+                    Nothing -> Just $ NC.OtherProxy (strippedHostName host) $ fromIntegral port
             })
         NC.connectionClose
         $ \conn -> do

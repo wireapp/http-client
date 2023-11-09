@@ -23,6 +23,7 @@ module Network.HTTP.Client.Request
     , addProxy
     , applyBasicAuth
     , applyBasicProxyAuth
+    , applyBearerAuth
     , urlEncodedBody
     , needsGunzip
     , requestBuilder
@@ -36,10 +37,11 @@ module Network.HTTP.Client.Request
     , observedStreamFile
     , extractBasicAuthInfo
     , throwErrorStatusCodes
+    , addProxySecureWithoutConnect
     ) where
 
 import Data.Int (Int64)
-import Data.Maybe (fromMaybe, isJust, isNothing)
+import Data.Maybe (fromMaybe, isNothing)
 import Data.Monoid (mempty, mappend, (<>))
 import Data.String (IsString(..))
 import Data.Char (toLower)
@@ -47,6 +49,7 @@ import Control.Applicative as A ((<$>))
 import Control.Monad (unless, guard)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Numeric (showHex)
+import qualified Data.Set as Set
 
 import Blaze.ByteString.Builder (Builder, fromByteString, fromLazyByteString, toByteStringIO, flush)
 import Blaze.ByteString.Builder.Char8 (fromChar, fromShow)
@@ -62,7 +65,7 @@ import Network.URI (URI (..), URIAuth (..), parseURI, relativeTo, escapeURIStrin
 import Control.Exception (throw, throwIO, IOException)
 import qualified Control.Exception as E
 import qualified Data.CaseInsensitive as CI
-import qualified Data.ByteArray.Encoding as BAE
+import qualified Data.ByteString.Base64 as B64
 
 import Network.HTTP.Client.Body
 import Network.HTTP.Client.Types
@@ -119,9 +122,9 @@ throwErrorStatusCodes req res = do
 -- You can place the request method at the beginning of the URL separated by a
 -- space, e.g.:
 --
--- @@@
+-- @
 -- parseRequest "POST http://httpbin.org/post"
--- @@@
+-- @
 --
 -- Note that the request method must be provided as all capital letters.
 --
@@ -301,6 +304,9 @@ defaultRequest = Request
         , requestManagerOverride = Nothing
         , connectionOverride = Nothing
         , shouldStripHeaderOnRedirect = const False
+        , shouldStripHeaderOnRedirectIfOnDifferentHostOnly = False
+        , proxySecureMode = ProxySecureWithConnect
+        , redactHeaders = Set.singleton "Authorization"
         }
 
 -- | Parses a URL via 'parseRequest_'
@@ -325,7 +331,7 @@ buildBasicAuth ::
     -> S8.ByteString -- ^ Password
     -> S8.ByteString
 buildBasicAuth user passwd =
-    S8.append "Basic " (BAE.convertToBase BAE.Base64 (S8.concat [ user, ":", passwd ]))
+    S8.append "Basic " (B64.encode (S8.concat [ user, ":", passwd ]))
 
 -- | Add a Basic Auth header (with the specified user name and password) to the
 -- given Request. Ignore error handling:
@@ -343,6 +349,22 @@ applyBasicAuth user passwd req =
   where
     authHeader = (CI.mk "Authorization", buildBasicAuth user passwd)
 
+-- | Build a bearer-auth header value
+buildBearerAuth ::
+    S8.ByteString -- ^ Token
+    -> S8.ByteString
+buildBearerAuth token =
+    S8.append "Bearer " token
+
+-- | Add a Bearer Auth header to the given 'Request'
+--
+-- @since 0.7.6
+applyBearerAuth :: S.ByteString -> Request -> Request
+applyBearerAuth bearerToken req =
+    req { requestHeaders = authHeader : requestHeaders req }
+  where
+    authHeader = (CI.mk "Authorization", buildBearerAuth bearerToken)
+
 -- | Add a proxy to the Request so that the Request when executed will use
 -- the provided proxy.
 --
@@ -350,6 +372,13 @@ applyBasicAuth user passwd req =
 addProxy :: S.ByteString -> Int -> Request -> Request
 addProxy hst prt req =
     req { proxy = Just $ Proxy hst prt }
+
+
+-- | Send secure requests to the proxy in plain text rather than using CONNECT.
+--
+-- @since 0.7.2
+addProxySecureWithoutConnect :: Request -> Request
+addProxySecureWithoutConnect req = req { proxySecureMode = ProxySecureWithoutConnect }
 
 -- | Add a Proxy-Authorization header (with the specified username and
 -- password) to the given 'Request'. Ignore error handling:
@@ -390,6 +419,19 @@ needsGunzip req hs' =
      && ("content-encoding", "gzip") `elem` hs'
      && decompress req (fromMaybe "" $ lookup "content-type" hs')
 
+data EncapsulatedPopperException = EncapsulatedPopperException E.SomeException
+    deriving (Show)
+instance E.Exception EncapsulatedPopperException
+
+-- | Encapsulate a thrown exception into a custom type
+--
+-- During streamed body sending, both the Popper and the connection may throw IO exceptions;
+-- however, we don't want to route the Popper exceptions through onRequestBodyException.
+-- https://github.com/snoyberg/http-client/issues/469
+encapsulatePopperException :: IO a -> IO a
+encapsulatePopperException action =
+    action `E.catch` (\(ex :: E.SomeException) -> E.throwIO (EncapsulatedPopperException ex))
+
 requestBuilder :: Request -> Connection -> IO (Maybe (IO ()))
 requestBuilder req Connection {..} = do
     (contentLength, sendNow, sendLater) <- toTriple (requestBody req)
@@ -398,7 +440,10 @@ requestBuilder req Connection {..} = do
         else sendNow >> return Nothing
   where
     expectContinue   = Just "100-continue" == lookup "Expect" (requestHeaders req)
-    checkBadSend f   = f `E.catch` onRequestBodyException req
+    checkBadSend f   = f `E.catches` [
+        E.Handler (\(EncapsulatedPopperException ex) -> throwIO ex)
+      , E.Handler (onRequestBodyException req)
+      ]
     writeBuilder     = toByteStringIO connectionWrite
     writeHeadersWith contentLength = writeBuilder . (builder contentLength `Data.Monoid.mappend`)
     flushHeaders contentLength     = writeHeadersWith contentLength flush
@@ -439,7 +484,7 @@ requestBuilder req Connection {..} = do
         withStream (loop 0)
       where
         loop !n stream = do
-            bs <- stream
+            bs <- encapsulatePopperException stream
             if S.null bs
                 then case mlen of
                     -- If stream is chunked, no length argument
@@ -466,10 +511,17 @@ requestBuilder req Connection {..} = do
         | secure req = fromByteString "https://"
         | otherwise  = fromByteString "http://"
 
-    requestHostname
-        | isJust (proxy req) && not (secure req)
-            = requestProtocol <> fromByteString hh
-        | otherwise          = mempty
+    requestHostname (Request { proxy = Nothing }) = mempty
+    requestHostname (Request { proxy = Just _,
+                               secure = False }) =
+            requestProtocol <> fromByteString hh
+    requestHostname (Request { proxy = Just _,
+                               secure = True,
+                               proxySecureMode = ProxySecureWithConnect }) = mempty
+    requestHostname (Request { proxy = Just _,
+                               secure = True,
+                               proxySecureMode = ProxySecureWithoutConnect }) =
+            requestProtocol <> fromByteString hh
 
     contentLengthHeader (Just contentLength') =
             if method req `elem` ["GET", "HEAD"] && contentLength' == 0
@@ -499,7 +551,7 @@ requestBuilder req Connection {..} = do
     builder contentLength =
             fromByteString (method req)
             <> fromByteString " "
-            <> requestHostname
+            <> requestHostname req
             <> (case S8.uncons $ path req of
                     Just ('/', _) -> fromByteString $ path req
                     _ -> fromChar '/' <> fromByteString (path req))

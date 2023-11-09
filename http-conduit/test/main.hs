@@ -49,7 +49,9 @@ import Data.Time.Calendar
 import qualified Network.Wai.Handler.WarpTLS as WT
 import Network.Connection (settingDisableCertificateValidation)
 import Data.Default.Class (def)
+#ifdef VERSION_aeson
 import qualified Data.Aeson as A
+#endif
 import qualified Network.HTTP.Simple as Simple
 import Data.Monoid (mempty)
 import Control.Monad.Trans.Resource (runResourceT)
@@ -406,7 +408,7 @@ main = do
     describe "hostAddress" $ do
         it "overrides host" $ withApp app $ \port -> do
             req' <- parseUrlThrow $ "http://example.com:" ++ show port
-            let req = req' { hostAddress = Just 0x0100007f } -- 127.0.0.1
+            let req = req' { hostAddress = Just $ NS.tupleToHostAddress (127, 0, 0, 1) }
             manager <- newManager tlsManagerSettings
             res <- httpLbs req manager
             responseBody res @?= "homepage for example.com"
@@ -461,6 +463,7 @@ main = do
             res <- I.readIORef ref
             res `shouldBe` qs
 
+#ifdef VERSION_aeson
     describe "Simple.JSON" $ do
         it "normal" $ jsonApp $ \port -> do
             req <- parseUrlThrow $ "http://localhost:" ++ show port
@@ -470,6 +473,7 @@ main = do
             req <- parseUrlThrow $ "http://localhost:" ++ show port ++ "/trailing"
             value <- Simple.httpJSON req
             responseBody value `shouldBe` jsonValue
+#endif
 
     it "RequestBodyIO" $ echo $ \port -> do
         manager <- newManager tlsManagerSettings
@@ -608,6 +612,7 @@ rawApp bs =
   where
     src = yield bs
 
+#ifdef VERSION_aeson
 jsonApp :: (Int -> IO ()) -> IO ()
 jsonApp = withApp $ \req -> return $ responseLBS
     status200
@@ -623,3 +628,4 @@ jsonValue = A.object
     [ "name" A..= ("Alice" :: String)
     , "age" A..= (35 :: Int)
     ]
+#endif

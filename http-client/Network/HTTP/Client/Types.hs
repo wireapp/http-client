@@ -37,6 +37,8 @@ module Network.HTTP.Client.Types
     , ProxyOverride (..)
     , StreamFileStatus (..)
     , ResponseTimeout (..)
+    , ProxySecureMode (..)
+    , MaxHeaderLength (..)
     ) where
 
 import qualified Data.Typeable as T (Typeable)
@@ -59,6 +61,7 @@ import Network.Socket (HostAddress)
 import Data.IORef
 import qualified Network.Socket as NS
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import Data.Text (Text)
 import Data.Streaming.Zlib (ZlibException)
 import Data.CaseInsensitive as CI
@@ -344,10 +347,19 @@ instance Data.Monoid.Monoid CookieJar where
 -- | Define a HTTP proxy, consisting of a hostname and port number.
 
 data Proxy = Proxy
-    { proxyHost :: S.ByteString -- ^ The host name of the HTTP proxy.
+    { proxyHost :: S.ByteString -- ^ The host name of the HTTP proxy in URI format. IPv6 addresses in square brackets.
     , proxyPort :: Int -- ^ The port number of the HTTP proxy.
     }
     deriving (Show, Read, Eq, Ord, T.Typeable)
+
+-- | Define how to make secure connections using a proxy server.
+data ProxySecureMode =
+  ProxySecureWithConnect
+  -- ^ Use the HTTP CONNECT verb to forward a secure connection through the proxy.
+  | ProxySecureWithoutConnect
+  -- ^ Send the request directly to the proxy with an https URL. This mode can be
+  -- used to offload TLS handling to a trusted local proxy.
+  deriving (Show, Read, Eq, Ord, T.Typeable)
 
 -- | When using one of the 'RequestBodyStream' \/ 'RequestBodyStreamChunked'
 -- constructors, you must ensure that the 'GivesPopper' can be called multiple
@@ -487,6 +499,9 @@ data Request = Request
     -- ^ Requested host name, used for both the IP address to connect to and
     -- the @host@ request header.
     --
+    -- This is in URI format, with raw IPv6 addresses enclosed in square brackets.
+    -- Use 'strippedHostName' when making network connections.
+    --
     -- Since 0.1.0
     , port :: Int
     -- ^ The port to connect to. Also used for generating the @host@ request header.
@@ -606,6 +621,25 @@ data Request = Request
     -- when following a redirect. Default: keep all headers intact.
     --
     -- @since 0.6.2
+
+    , shouldStripHeaderOnRedirectIfOnDifferentHostOnly :: Bool
+    -- ^ Decide whether a header must be stripped from the request
+    -- when following a redirect, if host differs from previous request
+    -- in redirect chain. Default: false (always strip regardless of host change)
+    --
+    -- @since 0.7.15
+
+    , proxySecureMode :: ProxySecureMode
+    -- ^ How to proxy an HTTPS request.
+    --
+    -- Default: Use HTTP CONNECT.
+    --
+    -- @since 0.7.2
+
+    , redactHeaders :: Set.Set HeaderName
+    -- ^ List of header values being redacted in case we show Request.
+    --
+    -- @since 0.7.13
     }
     deriving T.Typeable
 
@@ -629,7 +663,7 @@ instance Show Request where
         , "  host                 = " ++ show (host x)
         , "  port                 = " ++ show (port x)
         , "  secure               = " ++ show (secure x)
-        , "  requestHeaders       = " ++ show (DL.map redactSensitiveHeader (requestHeaders x))
+        , "  requestHeaders       = " ++ show (DL.map (redactSensitiveHeader $ redactHeaders x) (requestHeaders x))
         , "  path                 = " ++ show (path x)
         , "  queryString          = " ++ show (queryString x)
         --, "  requestBody          = " ++ show (requestBody x)
@@ -639,12 +673,15 @@ instance Show Request where
         , "  redirectCount        = " ++ show (redirectCount x)
         , "  responseTimeout      = " ++ show (responseTimeout x)
         , "  requestVersion       = " ++ show (requestVersion x)
+        , "  proxySecureMode      = " ++ show (proxySecureMode x)
         , "}"
         ]
 
-redactSensitiveHeader :: Header -> Header
-redactSensitiveHeader ("Authorization", _) = ("Authorization", "<REDACTED>")
-redactSensitiveHeader h = h
+redactSensitiveHeader :: Set.Set HeaderName -> Header -> Header
+redactSensitiveHeader toRedact h@(name, _) =
+  if name `Set.member` toRedact
+    then (name, "<REDACTED>")
+    else h
 
 -- | A simple representation of the HTTP response.
 --
@@ -678,6 +715,12 @@ data Response body = Response
     -- be impossible.
     --
     -- Since 0.1.0
+    , responseOriginalRequest :: Request
+    -- ^ Holds original @Request@ related to this @Response@ (with an empty body).
+    -- This field is intentionally not exported directly, but made available
+    -- via @getOriginalRequest@ instead.
+    --
+    -- Since 0.7.8
     }
     deriving (Show, T.Typeable, Functor, Data.Foldable.Foldable, Data.Traversable.Traversable)
 
@@ -773,6 +816,7 @@ data ManagerSettings = ManagerSettings
     -- Default: respect the @proxy@ value on the @Request@ itself.
     --
     -- Since 0.4.7
+    , managerMaxHeaderLength :: Maybe MaxHeaderLength
     }
     deriving T.Typeable
 
@@ -799,6 +843,7 @@ data Manager = Manager
     , mSetProxy :: Request -> Request
     , mModifyResponse      :: Response BodyReader -> IO (Response BodyReader)
     -- ^ See 'managerProxy'
+    , mMaxHeaderLength :: Maybe MaxHeaderLength
     }
     deriving T.Typeable
 
@@ -850,3 +895,11 @@ data StreamFileStatus = StreamFileStatus
     , thisChunkSize :: Int
     }
     deriving (Eq, Show, Ord, T.Typeable)
+
+-- | The maximum header size in bytes.
+--
+-- @since 0.7.14
+newtype MaxHeaderLength = MaxHeaderLength
+    { unMaxHeaderLength :: Int
+    }
+    deriving (Eq, Show)
