@@ -18,15 +18,15 @@ library
   other-extensions:    ScopedTypeVariables
   build-depends:       base >= 4.10 && < 5
                      , data-default-class
-                     , http-client >= 0.5.0
-                     , connection >= 0.2.5
+                     , http-client 
+                     , crypton-connection
                      , network
                      , tls >= 1.7
                      , bytestring
                      , case-insensitive
                      , transformers
                      , http-types
-                     , crypton >= 0.32
+                     , crypton
                      , memory
                      , exceptions
                      , containers
@@ -41,7 +41,7 @@ test-suite spec
   hs-source-dirs:      test
   default-language:    Haskell2010
   build-depends:       base
-                     , connection
+                     , crypton-connection
                      , hspec
                      , http-client
                      , http-client-tls
