@@ -13,6 +13,7 @@ module Network.HTTP.Client.Core
     , httpRedirect'
     , withConnection
     , handleClosedRead
+    , withConnection'
     ) where
 
 import Network.HTTP.Types
@@ -298,3 +299,11 @@ withConnection origReq man action = do
     mHttpConn <- getConn (mSetProxy man origReq) man
     action (managedResource mHttpConn) <* keepAlive mHttpConn
         `finally` managedRelease mHttpConn DontReuse
+
+-- | Like 'withConnection', but exposes more guts and lets you specify if
+-- you want the connection to be returned to the pool afterwards or not.
+withConnection' :: Request -> Manager -> Reuse -> (Managed Connection -> IO a) -> IO a
+withConnection' origReq man reuse action = do
+    mHttpConn <- getConn (mSetProxy man origReq) man
+    action mHttpConn <* keepAlive mHttpConn
+        `finally` managedRelease mHttpConn reuse
