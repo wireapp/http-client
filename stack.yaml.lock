@@ -12,6 +12,20 @@ packages:
   original:
     hackage: tls-1.8.0
 - completed:
+    hackage: warp-tls-3.4.3@sha256:6e39e5c0906652792fc5d02187d7fa85acaf66d770587a0fd304d61112490899,1828
+    pantry-tree:
+      sha256: c47c5ce080e63df214ef000a3fde2cd3800fdbac53d2a69dc5ef02416902ced8
+      size: 407
+  original:
+    hackage: warp-tls-3.4.3@sha256:6e39e5c0906652792fc5d02187d7fa85acaf66d770587a0fd304d61112490899,1828
+- completed:
+    hackage: warp-3.3.30@sha256:9e0914c8893689fd37aab3990e920eac63652630084c4d2325dccfcbe0f1e98d,11100
+    pantry-tree:
+      sha256: cdea00e698b4083cf412d5d296b0b6fec25ec6ba6727d62460b65a40da084d35
+      size: 3838
+  original:
+    hackage: warp-3.3.30@sha256:9e0914c8893689fd37aab3990e920eac63652630084c4d2325dccfcbe0f1e98d,11100
+- completed:
     hackage: crypton-connection-0.3.1@sha256:4d0958537197956b536ea91718b1749949757022532f50b8f683290056a19021,1581
     pantry-tree:
       sha256: e35ac3a35611afab9fafac633d0c4e6328b9cce4c8262378671d6c5a739e7e70
