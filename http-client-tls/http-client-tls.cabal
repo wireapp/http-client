@@ -21,12 +21,12 @@ library
                      , http-client >= 0.5.0
                      , connection >= 0.2.5
                      , network
-                     , tls >= 1.2
+                     , tls >= 1.7
                      , bytestring
                      , case-insensitive
                      , transformers
                      , http-types
-                     , cryptonite
+                     , crypton >= 0.32
                      , memory
                      , exceptions
                      , containers

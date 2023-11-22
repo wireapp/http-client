@@ -1,6 +1,8 @@
-resolver: lts-14.10
+resolver: lts-21.21
 packages:
 - http-client
 - http-client-tls
 - http-client-openssl
 - http-conduit
+
+allow-newer: true

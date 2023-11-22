@@ -30,8 +30,8 @@ library
                  , conduit               >= 1.2
                  , conduit-extra         >= 1.1
                  , http-types            >= 0.7
-                 , http-client           >= 0.5.13  && < 0.8
-                 , http-client-tls       >= 0.3     && < 0.4
+                 , http-client
+                 , http-client-tls
                  , mtl
                  , unliftio-core
 
@@ -56,7 +56,7 @@ test-suite test
                  , data-default-class
                  , connection >= 0.2
                  , warp-tls
-                 , tls < 1.5 || >= 1.5.2
+                 , tls >= 1.7
                  , time
                  , blaze-builder
                  , bytestring
