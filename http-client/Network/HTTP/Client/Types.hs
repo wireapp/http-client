@@ -44,6 +44,7 @@ module Network.HTTP.Client.Types
 import qualified Data.Typeable as T (Typeable)
 import Network.HTTP.Types
 import Control.Exception (Exception, SomeException, throwIO)
+import Data.Dynamic (Dynamic)
 import Data.Word (Word64)
 import qualified Data.ByteString as S
 import qualified Data.ByteString.Lazy as L
@@ -64,7 +65,7 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import Data.Streaming.Zlib (ZlibException)
 import Data.CaseInsensitive as CI
-import Data.KeyedPool (KeyedPool)
+import Data.KeyedPool (KeyedPool, Managed)
 
 -- | An @IO@ action that represents an incoming response body coming from the
 -- server. Data provided by this action has already been gunzipped and
@@ -87,6 +88,8 @@ data Connection = Connection
       -- ^ Close connection. Any successive operation on the connection
       -- (except closing) should fail with `ConnectionClosed` exception.
       -- It is allowed to close connection multiple times.
+    , connectionRaw :: Dynamic
+      -- ^ The underlying thingy (e.g. a socket)
     }
     deriving T.Typeable
 
@@ -610,6 +613,9 @@ data Request = Request
     --
     -- @since 0.4.28
 
+    , connectionOverride :: Maybe (Managed Connection)
+    -- ^ Use a particular connection for this request, instead of asking the
+    -- manager for one.
     , shouldStripHeaderOnRedirect :: HeaderName -> Bool
     -- ^ Decide whether a header must be stripped from the request
     -- when following a redirect. Default: keep all headers intact.

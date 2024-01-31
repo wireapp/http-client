@@ -302,6 +302,7 @@ defaultRequest = Request
                 Just (_ :: IOException) -> return ()
                 Nothing -> throwIO se
         , requestManagerOverride = Nothing
+        , connectionOverride = Nothing
         , shouldStripHeaderOnRedirect = const False
         , shouldStripHeaderOnRedirectIfOnDifferentHostOnly = False
         , proxySecureMode = ProxySecureWithConnect

@@ -53,6 +53,7 @@ opensslManagerSettings mkContext = defaultManagerSettings
                         (recv sock bufSize)
                         (sendAll sock)
                         (return ())
+                        sock
                 connectionWrite conn connstr
                 checkConn conn
                 makeSSLConnection ctx sock serverName
@@ -88,6 +89,7 @@ opensslManagerSettings mkContext = defaultManagerSettings
            -- (some sites terminate SSL connection right after returning the data).
            (SSL.write ssl)
            (N.close sock)
+           ssl
 
     -- same as Data.ByteString.Lazy.Internal.defaultChunkSize
     bufSize :: Int
