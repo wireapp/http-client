@@ -1,5 +1,78 @@
 # Changelog for http-client
 
+## 0.7.16
+
+* Add `responseEarlyHints` field to `Response`, containing a list of all HTTP 103 Early Hints headers received from the server.
+* Add `earlyHintHeadersReceived` callback to `Request`, which will be called on each HTTP 103 Early Hints header section received.
+
+## 0.7.15
+
+* Adds `shouldStripHeaderOnRedirectIfOnDifferentHostOnly` option to `Request` [#520](https://github.com/snoyberg/http-client/pull/520)
+
+## 0.7.14
+
+* Allow customizing max header length [#514](https://github.com/snoyberg/http-client/pull/514)
+
+## 0.7.13
+
+* Create the ability to redact custom header values to censor sensitive information
+
+## 0.7.12
+
+* Fix premature connection closing due to weak reference lifetimes [#490](https://github.com/snoyberg/http-client/pull/490)
+
+## 0.7.11
+
+* Allow making requests to raw IPv6 hosts [#477](https://github.com/snoyberg/http-client/pull/477)
+* Catch "resource vanished" exception on initial response read [#480](https://github.com/snoyberg/http-client/pull/480)
+* Search for reachable IP addresses asynchronously (RFC 6555, 8305) after calling `getAddrInfo` to reduce latency [#472](https://github.com/snoyberg/http-client/pull/472).
+
+## 0.7.10
+
+* Consume trailers and last CRLF of chunked body. The trailers are not exposed,
+  unless the raw body is requested.
+
+## 0.7.9
+
+* Exceptions from streamed request body now cause the request to fail. Previously they were
+  routed through onRequestBodyException and, by default, the IOExceptions were discarded.
+
+## 0.7.8
+
+* Include the original `Request` in the `Response`. Expose it via `getOriginalRequest`.
+
+## 0.7.7
+
+* Allow secure cookies for localhost without HTTPS [#460](https://github.com/snoyberg/http-client/pull/460)
+
+## 0.7.6
+
+* Add `applyBearerAuth` function [#457](https://github.com/snoyberg/http-client/pull/457/files)
+
+## 0.7.5
+
+* Force closing connections in case of exceptions throwing [#454](https://github.com/snoyberg/http-client/pull/454).
+
+## 0.7.4
+
+* Depend on base64-bytestring instead of memory [#453](https://github.com/snoyberg/http-client/pull/453)
+
+## 0.7.3
+
+* Added `withSocket` to `Network.HTTP.Client.Connection`.
+
+## 0.7.2.1
+
+* Fix bug in `useProxySecureWithoutConnect`.
+
+## 0.7.2
+
+* Add a new proxy mode, proxySecureWithoutConnect, for sending HTTPS requests in plain text to a proxy without using the CONNECT method.
+
+## 0.7.1
+
+* Remove `AI_ADDRCONFIG` [#400](https://github.com/snoyberg/http-client/issues/400)
+
 ## 0.7.0
 
 * Remove Eq instances for Cookie, CookieJar, Response, Ord instance for Cookie [#435](https://github.com/snoyberg/http-client/pull/435)

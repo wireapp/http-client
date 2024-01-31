@@ -1,5 +1,6 @@
+cabal-version:   >= 1.10
 name:            http-conduit
-version:         2.3.7.3
+version:         2.3.8.3
 license:         BSD3
 license-file:    LICENSE
 author:          Michael Snoyman <michael@snoyman.com>
@@ -8,9 +9,8 @@ synopsis:        HTTP client package with conduit interface and HTTPS support.
 description:         Hackage documentation generation is not reliable. For up to date documentation, please see: <http://www.stackage.org/package/http-conduit>.
 category:        Web, Conduit
 stability:       Stable
-cabal-version:   >= 1.8
 build-type:      Simple
-homepage:        http://www.yesodweb.com/book/http-conduit
+homepage:        https://github.com/snoyberg/http-client
 extra-source-files: test/main.hs
                   , test/CookieTest.hs
                   , multipart-example.bin
@@ -20,9 +20,14 @@ extra-source-files: test/main.hs
                   , README.md
                   , ChangeLog.md
 
+flag aeson
+  manual: True
+  description: Enable the dependency on aeson
+  default: True
+
 library
+    default-language: Haskell2010
     build-depends: base                  >= 4.10    && < 5
-                 , aeson                 >= 0.8
                  , attoparsec
                  , bytestring            >= 0.9.1.4
                  , transformers          >= 0.2
@@ -35,6 +40,10 @@ library
                  , mtl
                  , unliftio-core
 
+    if flag(aeson)
+      build-depends: aeson                 >= 0.8
+                   , attoparsec-aeson      >= 2.1
+
     if !impl(ghc>=7.9)
       build-depends:   void >= 0.5.5
     exposed-modules: Network.HTTP.Conduit
@@ -43,6 +52,7 @@ library
     ghc-options:     -Wall
 
 test-suite test
+    default-language: Haskell2010
     main-is: main.hs
     other-modules: CookieTest
     type: exitcode-stdio-1.0
@@ -54,7 +64,7 @@ test-suite test
                  , HUnit
                  , hspec >= 1.3
                  , data-default-class
-                 , connection >= 0.2
+                 , crypton-connection
                  , warp-tls
                  , tls < 1.5 || >= 1.5.2
                  , time
@@ -75,10 +85,13 @@ test-suite test
                  , http-conduit
                  , conduit-extra
                  , streaming-commons
-                 , aeson
                  , temporary
                  , resourcet
                  , network
+
+    if flag(aeson)
+      build-depends: aeson
+                   , attoparsec-aeson      >= 2.1
 
 source-repository head
   type:     git

@@ -1,3 +1,11 @@
+## 0.3.3
+
+* Use `hostAddress` from `Request`.
+
+## 0.3.2.0
+
+* http-client-openssl: added reasonable OpenSSL default settings
+
 ## 0.3.1.0
 * Fix a bug with http-proxy that would cause SNI to be set incorrectly; (would
   use the domain of the proxy, instead of the server we're trying to reach

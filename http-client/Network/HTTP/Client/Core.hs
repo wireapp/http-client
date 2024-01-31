@@ -12,6 +12,7 @@ module Network.HTTP.Client.Core
     , httpRedirect
     , httpRedirect'
     , withConnection
+    , handleClosedRead
     , withConnection'
     ) where
 
@@ -31,6 +32,7 @@ import Data.Monoid
 import Control.Monad (void)
 import System.Timeout (timeout)
 import Data.KeyedPool
+import GHC.IO.Exception (IOException(..), IOErrorType(..))
 
 -- | Perform a @Request@ using a connection acquired from the given @Manager@,
 -- and then provide the @Response@ to the given function. This function is
@@ -104,7 +106,7 @@ httpRaw' req0 m = do
     ex <- try $ do
         cont <- requestBuilder (dropProxyAuthSecure req) (managedResource mconn)
 
-        getResponse timeout' req mconn cont
+        getResponse (mMaxHeaderLength m) timeout' req mconn cont
 
     case ex of
         -- Connection was reused, and might have been closed. Try again
@@ -112,7 +114,11 @@ httpRaw' req0 m = do
             managedRelease mconn DontReuse
             httpRaw' req m
         -- Not reused, or a non-retry, so this is a real exception
-        Left e -> throwIO e
+        Left e -> do
+          -- Explicitly release connection for all real exceptions:
+          -- https://github.com/snoyberg/http-client/pull/454
+          managedRelease mconn DontReuse
+          throwIO e
         -- Everything went ok, so the connection is good. If any exceptions get
         -- thrown in the response body, just throw them as normal.
         Right res -> case cookieJar req' of
@@ -129,14 +135,16 @@ httpRaw' req0 m = do
                 before <- getCurrentTime
                 mres <- timeout timeout' f
                 case mres of
-                    Nothing -> throwHttp ConnectionTimeout
-                    Just res -> do
-                        now <- getCurrentTime
-                        let timeSpentMicro = diffUTCTime now before * 1000000
-                            remainingTime = round $ fromIntegral timeout' - timeSpentMicro
-                        if remainingTime <= 0
-                            then throwHttp ConnectionTimeout
-                            else return (Just remainingTime, res)
+                     Nothing -> throwHttp ConnectionTimeout
+                     Just mConn -> do
+                         now <- getCurrentTime
+                         let timeSpentMicro = diffUTCTime now before * 1000000
+                             remainingTime = round $ fromIntegral timeout' - timeSpentMicro
+                         if remainingTime <= 0
+                             then do
+                                 managedRelease mConn DontReuse
+                                 throwHttp ConnectionTimeout
+                             else return (Just remainingTime, mConn)
 
     responseTimeout' req =
         case responseTimeout req of
@@ -213,7 +221,7 @@ responseOpen inputReq manager' = do
         (req'', res) <- httpRaw' modReq manager
         let mreq = if redirectCount modReq == 0
               then Nothing
-              else getRedirectedRequest req'' (responseHeaders res) (responseCookieJar res) (statusCode (responseStatus res))
+              else getRedirectedRequest req' req'' (responseHeaders res) (responseCookieJar res) (statusCode (responseStatus res))
         return (res, fromMaybe req'' mreq, isJust mreq))
       req'
 
@@ -229,6 +237,17 @@ httpRedirect count0 http0 req0 = fmap snd $ httpRedirect' count0 http' req0
     http' req' = do
         (res, mbReq) <- http0 req'
         return (res, fromMaybe req0 mbReq, isJust mbReq)
+
+handleClosedRead :: SomeException -> IO L.ByteString
+handleClosedRead se
+    | Just ConnectionClosed <- fmap unHttpExceptionContentWrapper (fromException se)
+        = return L.empty
+    | Just (HttpExceptionRequest _ ConnectionClosed) <- fromException se
+        = return L.empty
+    | Just (IOError _ ResourceVanished _ _ _ _) <- fromException se
+        = return L.empty
+    | otherwise
+        = throwIO se
 
 -- | Redirect loop.
 --
@@ -253,15 +272,7 @@ httpRedirect' count0 http' req0 = go count0 req0 []
                 -- The connection may already be closed, e.g.
                 -- when using withResponseHistory. See
                 -- https://github.com/snoyberg/http-client/issues/169
-                `Control.Exception.catch` \se ->
-                    case () of
-                      ()
-                        | Just ConnectionClosed <-
-                            fmap unHttpExceptionContentWrapper
-                            (fromException se) -> return L.empty
-                        | Just (HttpExceptionRequest _ ConnectionClosed) <-
-                            fromException se -> return L.empty
-                      _ -> throwIO se
+                `Control.Exception.catch` handleClosedRead
             responseClose res
 
             -- And now perform the actual redirect
