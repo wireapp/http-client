@@ -1,5 +1,5 @@
 name:                http-client-tls
-version:             0.3.6.3
+version:             0.4.0
 synopsis:            http-client backend using the connection package and tls library
 description:         Hackage documentation generation is not reliable. For up to date documentation, please see: <https://www.stackage.org/package/http-client-tls>.
 homepage:            https://github.com/snoyberg/http-client
@@ -17,17 +17,17 @@ library
   exposed-modules:     Network.HTTP.Client.TLS
   other-extensions:    ScopedTypeVariables
   build-depends:       base >= 4.10 && < 5
-                     , data-default-class
+                     , base16 >= 1.0
+                     , cryptohash-md5
+                     , data-default
                      , http-client >= 0.7.11
                      , crypton-connection
                      , network
-                     , tls >= 1.2
+                     , tls >= 2.1.2
                      , bytestring
                      , case-insensitive
                      , transformers
                      , http-types
-                     , crypton
-                     , memory
                      , exceptions
                      , containers
                      , text
@@ -46,6 +46,8 @@ test-suite spec
                      , http-client-tls
                      , http-types
                      , crypton-connection
+                     , data-default
+                     , tls
 
 benchmark benchmark
   main-is:             Bench.hs

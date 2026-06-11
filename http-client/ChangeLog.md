@@ -1,5 +1,17 @@
 # Changelog for http-client
 
+## 0.7.19
+
+* Make mockable via `Network.HTTP.Client.Internal.requestAction` [#554](https://github.com/snoyberg/http-client/pull/554)
+
+## 0.7.18
+
+* Add the `managerSetMaxNumberHeaders` function to the `Client` module to configure `managerMaxNumberHeaders` in `ManagerSettings`.
+
+## 0.7.17
+
+* Add `managerSetMaxHeaderLength` to `Client` to change `ManagerSettings` `MaxHeaderLength`.
+
 ## 0.7.16
 
 * Add `responseEarlyHints` field to `Response`, containing a list of all HTTP 103 Early Hints headers received from the server.

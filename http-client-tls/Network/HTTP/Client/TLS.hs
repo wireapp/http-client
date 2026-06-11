@@ -26,7 +26,7 @@ module Network.HTTP.Client.TLS
 import Control.Applicative ((<|>))
 import Control.Arrow (first)
 import System.Environment (getEnvironment)
-import Data.Default.Class
+import Data.Default
 import Network.HTTP.Client hiding (host, port)
 import Network.HTTP.Client.Internal hiding (host, port)
 import Control.Exception
@@ -41,9 +41,10 @@ import Control.Monad (guard, unless)
 import qualified Data.CaseInsensitive as CI
 import Data.Maybe (fromMaybe, isJust)
 import Network.HTTP.Types (status401)
-import Crypto.Hash (hash, Digest, MD5)
+import qualified Crypto.Hash.MD5 as MD5
 import Control.Arrow ((***))
-import Data.ByteArray.Encoding (convertToBase, Base (Base16))
+import Data.Base16.Types (extractBase16)
+import Data.ByteString.Base16 (encodeBase16')
 import Data.Typeable (Typeable)
 import Control.Monad.Catch (MonadThrow, throwM)
 import qualified Data.Map as Map
@@ -362,7 +363,7 @@ applyDigestAuth user pass req0 man = liftIO $ do
                 -- we always use no qop or qop=auth
                 ha2 = md5 $ S.concat [method req, ":", path req]
 
-                md5 bs = convertToBase Base16 (hash bs :: Digest MD5)
+                md5 = extractBase16 . encodeBase16' . MD5.hash
             key = "Authorization"
             val = S.concat
                 [ "Digest username=\""
